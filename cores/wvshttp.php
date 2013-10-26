@@ -48,12 +48,25 @@ class WVSHTTP{
 	private $postfield = array();
 	private $followlocation = false;
 	private $returnresult = true;
-	public $result;
+	public $content;
 	public $header;
+	public $rawheader;
+	public $requestheader;
+	public $httpstatus = false;
+	public $httpcode;
+	private $cookie = false;
+	private $storecookie = false;
+	private $temporary_dir;
+	private $setheader = false;
+	private $httpauth = false;
+	private $httpauthstring = false;
+	private $sethttpversion = false;
+	private $setreferer = false;
+	
 	
 	
 	public function __construct(){
-		
+		$this->temporary_dir = sys_get_temp_dir();
 	}
 	
 	public function setMethod($method){
@@ -75,21 +88,121 @@ class WVSHTTP{
 		curl_setopt($ch, CURLOPT_URL, $this->url);
 		curl_setopt($ch, CURLOPT_USERAGENT, $this->useragent);
 		
-		if($this->method == 'post') {
-			curl_setopt($ch, CURLOPT_POST, true);
-			curl_setopt($ch, CURLOPT_POSTFIELDS, $this->postfield);
+		switch(strtolower($this->method)) {
+			case 'post':
+				curl_setopt($ch, CURLOPT_POST, true);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $this->postfield);
+			break;
 		}
 		
 		if($this->followlocation) {
 			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 		}
 		
+		if($this->cookie) {
+			curl_setopt($ch, CURLOPT_COOKIE, $this->cookie);
+		}
+		
 		if($this->returnresult) {
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		}
 		
-		$this->result = curl_exec($ch);
-		$this->header = curl_getinfo($ch);
+		if($this->httpauth) {
+			curl_setopt($ch, CURLOPT_HTTPAUTH, $this->httpauth ) ; 
+			curl_setopt($ch, CURLOPT_USERPWD, $this->httpauthstring); 
+		}
+		
+		if($this->sethttpversion) {
+			switch($this->sethttpversion) {
+				case '1.0':
+					curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0);
+				break;
+				case '1.1':
+					curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+				break;
+			}
+		}
+		
+		if($this->setreferer) {
+			curl_setopt($ch, CURLOPT_REFERER, $this->setreferer);
+		}
+		
+		if($this->storecookie) {
+			if($this->temporary_dir) {
+				$parse_url = @parse_url($this->url);
+				if(isset($parse_url['host'])){
+					curl_setopt($ch, CURLOPT_COOKIEFILE, $this->temporary_dir.'/'.$parse_url['host'].'.txt');
+					curl_setopt($ch, CURLOPT_COOKIEJAR, $this->temporary_dir.'/'.$parse_url['host'].'.txt');
+				}
+			}
+		}
+		curl_setopt($ch, CURLOPT_HTTPHEADER, array('Expect:'));
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); 
+		curl_setopt($ch, CURLOPT_HEADER, true);
+		curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+		
+		if($this->setheader) {
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $this->setheader);
+		}
+		
+		
+		$this->content = curl_exec($ch);
+		if(!curl_errno($ch) && $this->content) {
+			$this->header =  (object) curl_getinfo($ch);
+			$this->httpstatus = $this->header->http_code;
+			$this->httpcode = $this->header->http_code;
+			list($this->rawheader, $this->content) = explode("\r\n\r\n", $this->content, 2);
+			$this->requestheader = curl_getinfo($ch, CURLINFO_HEADER_OUT);
+		} else {
+			$this->httpstatus = false;
+		}
+		curl_close($ch);
+		return $this;
+	}
+	
+	
+	public function success(){
+		if($this->httpstatus) {
+			return true;
+		}
+		return false;
+	}
+	
+	public function setHTTPVersion($version){
+		$this->sethttpversion = $version;
+		return $this;
+	}
+	
+	public function setHTTPAuth($type = 'CURLAUTH_BASIC', $authstring){
+		$this->httpauth = $type;
+		$this->httpauthstring = $authstring;
+		return $this;
+	}
+	
+	public function setCookie($cookies){
+		if(is_array($cookies)) {
+			$this->cookie = http_build_query($cookies);
+		} else {
+			$this->cookie = $cookies;
+		}
+		return $this;
+	}
+	
+	public function setReferer($referer){
+		$this->setreferer = $referer;
+		return $this;
+	}
+	
+	public function setHeader($headers = array()){
+		if(is_array($headers)) {
+			$this->setheader = $headers;
+		}
+		return $this;
+	}
+	
+	public function storeCookie(){
+		$this->storecookie = true;
 		return $this;
 	}
 	
@@ -102,10 +215,6 @@ class WVSHTTP{
 	public function followLocation(){
 		$this->followlocation = true;
 		return $this;
-	}
-	
-	public function returnHeaderResult(){
-		$this->headerresult = true;
 	}
 	
 	public function unsetreturnResult(){
